@@ -1,0 +1,294 @@
+load("~/masteers fraud/chapter_3 (2)/creditcard5.Rdata")
+creditcard <- creditcard[1:31]
+load("~/masteers fraud/chapter_3 (2)/transfers02_v2.Rdata")
+CLUST2 <- read.csv("C:/Users/user/Downloads/CLUST2.csv")
+CLUST2 <- CLUST2[2:16]
+CLUST <- read.csv("C:/Users/user/Downloads/CLUST2 (1).csv")
+CLUST <- CLUST[2:34]
+library(ROSE)
+library(caret)
+#Oversampling dataset
+
+n_new <- 9348/(1-0.3333)
+n_new1 <- 628/(1-0.3333)
+oversampling_result <- ovun.sample(formula = Class ~ ., data = creditcard, method = "over", N = n_new, seed = 2018)
+oversampling_result1 <- ovun.sample(formula = fraud_flag ~ ., data = transfers, method = "over", N = n_new1, seed = 2019)
+oversampled_credit <- oversampling_result$data
+oversampled_transfers <- oversampling_result1$data
+prop.table(table(oversampled_credit$Class))
+prop.table(table(oversampled_transfers$fraud_flag))
+
+#Visualization of the fraud and class distribution
+table(transfers$fraud_flag)
+table(creditcard$Class)
+
+#Undersampling Dataset 
+n_new2 <- 492/0.40
+n_new3 <- 14/0.20
+undersampling_result <- ovun.sample(formula = Class ~ ., data = creditcard, method = "under", N = n_new2, seed = 2018)
+undersampling_result1 <- ovun.sample(formula = fraud_flag ~ ., data = transfers, method = "under", N = n_new3, seed = 2019)
+undersampled_credit <- undersampling_result$data
+undersampled_transfers <- undersampling_result1$data
+table(transfers$fraud_flag)
+table(undersampled_transfers$fraud_flag)
+
+#Undersampling and Oversampling Combined
+
+n_new4 <- 20000
+fraud_fraction <- 0.30
+n_new5 <- 2000
+sampling_result <- ovun.sample(Class ~ ., creditcard, method = "both", N = n_new4,  p = fraud_fraction, seed = 2018)
+sampling_result1 <- ovun.sample(fraud_flag ~ ., transfers, method = "both", N = n_new5,  p = fraud_fraction, seed = 2018)
+sampled_credit <- sampling_result$data
+sampled_transfers <- sampling_result1$data
+table(sampled_transfers$fraud_flag)
+table(sampled_credit$Class)
+
+#Removing Extra Variables
+oversampled_credit <- oversampled_credit[1:31]
+undersampled_credit <- undersampled_credit[1:31]
+sampled_credit <- sampled_credit[1:31]
+
+#SMOTE
+library(smotefamily)
+n0 <- 9348; n1 <- 492; r0 <- 0.6
+ntimes <- ((1 - r0) / r0) * (n0 / n1) - 1
+n1 <- 628; n2 <- 14;
+ntimes1 <- ((1 - r0) / r0) * (n1 / n2) - 1
+smote_output <- SMOTE(X = creditcard[ , -c(1, 31)], target = creditcard$Class, K = 5, dup_size = ntimes)
+smote_output1 <- SMOTE(X = transfers[ , -c(1:10)], target = transfers$fraud_flag, K = 5, dup_size = ntimes1)
+credit_smote <- smote_output$data
+transfers_smote <- smote_output1$data
+colnames(credit_smote)[30] <- "Class"
+colnames(transfers_smote)[3] <- "fraud_flag"
+
+#credit card ggplot
+ggplot(creditcard, aes(x = V1, y = V2, color = Class)) +
+geom_point() +
+scale_color_manual(values = c('dodgerblue2', 'red'))
+
+ggplot(credit_smote, aes(x = V1, y = V2, color = Class)) +
+geom_point() +
+scale_color_manual(values = c('dodgerblue2', 'red'))
+
+#Transfers ggplot
+ggplot(transfers, aes(x = orig_balance_before, y = amount, color = fraud_flag)) +
+geom_point() +
+scale_color_manual(values = c('dodgerblue2', 'red'))
+
+ggplot(transfers_smote, aes(x = orig_balance_before, y = amount, color = fraud_flag)) +
+geom_point() +
+scale_color_manual(values = c('dodgerblue2', 'red'))
+
+#Basic Machine Learning model on credit card dataset
+index <- createDataPartition(creditcard$Class, p = 0.7, list = FALSE)
+creditcard_train_data <- creditcard[index, ]
+creditcard_test_data  <- creditcard[-index, ]
+
+fitControl <- trainControl(method = "repeatedcv", number = 5, repeats = 3)
+
+gbm_model <- train(Class ~ .,
+data = creditcard_train_data,
+method = "gbm",
+trControl = fitControl,
+verbose = FALSE)
+
+gbm_model$results
+
+plot(gbm_model$results)
+
+#Basic Machine Learning model on Transfers dataset
+
+index1 <- createDataPartition(transfers$fraud_flag, p = 0.7, list = FALSE)
+transfers_train_data <- transfers[index1, ]
+transfers_test_data  <- transfers[-index1, ]
+
+gbm_model1 <- train(fraud_flag ~ .,
+data = transfers_train_data,
+method = "gbm",
+trControl = fitControl,
+verbose = FALSE)
+
+gbm_model1$results
+
+#Credit Card SMOTE dataset model
+index2 <- createDataPartition(credit_smote$Class, p = 0.7, list = FALSE)
+
+creditcard1_train_data <- credit_smote[index2, ]
+creditcard1_test_data  <- credit_smote[-index2, ]
+
+fitControl <- trainControl(method = "repeatedcv", number = 5, repeats = 3)
+
+gbm_model2 <- train(Class ~ .,
+data = creditcard1_train_data,
+method = "gbm",
+trControl = fitControl, verbose = FALSE)
+
+#Transfers Oversampled and Undersampling transfers data set
+index3 <- createDataPartition(sampled_transfers$fraud_flag, p = 0.7, list = FALSE)
+
+sampled_transfer_train_data <- sampled_transfers[index3, ]
+sampled_transfer_test_data  <- sampled_transfers[-index3, ]
+
+fitControl <- trainControl(method = "repeatedcv", number = 5, repeats = 3)
+
+gbm_model3 <- train(fraud_flag ~ .,
+data = sampled_transfer_train_data,
+method = "gbm",
+trControl = fitControl,
+verbose = FALSE)
+
+#SMOTE of the clustered credit card dataset
+smote_output1 <- SMOTE(X = CLUST[ , -c(1, 31)], target = CLUST$Class, K = 5, dup_size = ntimes)
+credit_clust_smote <- smote_output1$data
+colnames(credit_clust_smote)[32] <- "Class"
+index4 <- createDataPartition(credit_clust_smote$Class, p = 0.7, list = FALSE)
+credit_clust_smote_train_data <- credit_clust_smote[index4, ]
+credit_clust_smote_test_data  <- credit_clust_smote[-index4, ]
+
+#Oversampled and Undersampling Clustered Transfer Dataset
+sampling_result2 <- ovun.sample(fraud_flag ~ ., CLUST2,
+method = "both", N = n_new5,  p = fraud_fraction, seed = 2018)
+sampled_clust_transfer <- sampling_result2$data
+
+index5 <- createDataPartition(sampled_clust_transfer$fraud_flag, p = 0.7, list = FALSE)
+sampled_clust_transfer_train_data <- sampled_clust_transfer[index5, ]
+sampled_clust_transfer_test_data  <- sampled_clust_transfer[-index5, ]
+
+#H2O Implemented
+library(h2o)
+h2o.init()
+
+#Credit Card Dataset
+creditcard_train_data_hf <- as.h2o(creditcard1_train_data)
+y <- "Class"
+x <- setdiff(colnames(creditcard_train_data_hf), y)
+creditcard_train_data_hf[, y] <- as.factor(creditcard_train_data_hf[, y])
+sframe <- h2o.splitFrame(creditcard_train_data_hf, seed = 42)
+train <- sframe[[1]]
+valid <- sframe[[2]]
+automl_model <- h2o.automl(x = x,
+y = y,
+training_frame = train,
+max_runtime_secs = 60,
+seed = 42)
+ 
+creditcard_test_data_hf <- as.h2o(creditcard1_test_data)
+x1 <- setdiff(colnames(creditcard_test_data_hf), y)
+creditcard_train_data_hf[, y] <- as.factor(creditcard_train_data_hf[, y])
+sframe1 <- h2o.splitFrame(creditcard_test_data_hf, seed = 42)
+test1 <- sframe1[[1]]
+valid1 <- sframe1[[2]]
+
+lb <- automl_model@leaderboard
+head(lb)
+aml_leader <- automl_model@leader
+summary(aml_leader)
+h2o.performance(aml_leader, test1)
+
+#Transfer Dataset
+transfer_hf <- as.h2o(sampled_transfer_train_data)
+y1 <- "fraud_flag"
+x2 <- setdiff(colnames(transfer_hf), y1)
+transfer_hf[, y1] <- as.factor(transfer_hf[, y1])
+sframe2 <- h2o.splitFrame(transfer_hf, seed = 42)
+train2 <- sframe2[[1]]
+valid2 <- sframe2[[2]]
+
+automl_model1 <- h2o.automl(x = x2,
+y = y1,
+training_frame = train2,
+max_runtime_secs = 60,
+seed = 42)
+
+transfer_test_hf <- as.h2o(sampled_transfer_test_data)
+x3 <- setdiff(colnames(transfer_test_hf), y1)
+transfer_test_hf[, y1] <- as.factor(transfer_test_hf[, y1])
+sframe3 <- h2o.splitFrame(transfer_test_hf, seed = 42)
+test3<- sframe3[[1]]
+valid3 <- sframe3[[2]]
+
+lb1 <- automl_model1@leaderboard
+head(lb1)
+aml_leader1 <- automl_model1@leader
+summary(aml_leader1)
+h2o.performance(aml_leader1, test3)
+
+#Credit Clust SMOTE Dataset
+
+credit_clust_hf <- as.h2o(credit_clust_smote_train_data)
+x4 <- setdiff(colnames(credit_clust_hf), y)
+credit_clust_hf[, y] <- as.factor(credit_clust_hf[, y])
+sframe4 <- h2o.splitFrame(credit_clust_hf, seed = 42)
+train4 <- sframe4[[1]]
+valid4 <- sframe4[[2]]
+
+automl_model2 <- h2o.automl(x = x4,
+y = y,
+training_frame = train4,
+max_runtime_secs = 60,
+seed = 42)
+
+lb2 <- automl_model2@leaderboard
+head(lb2)
+aml_leader2 <- automl_model2@leader
+summary(aml_leader2)
+
+#Testing Model
+
+credit_clust_test_hf <- as.h2o(credit_clust_smote_test_data)
+x5 <- setdiff(colnames(credit_clust_test_hf), y)
+credit_clust_test_hf[, y] <- as.factor(credit_clust_test_hf[, y])
+sframe5 <- h2o.splitFrame(credit_clust_test_hf, seed = 42)
+test5 <- sframe5[[1]]
+valid5 <- sframe5[[2]]
+
+h2o.performance(aml_leader2, test5)
+
+
+#Oversampled and Undersampling Clustered Transfer Dataset
+transfer_clust_hf2 <- as.h2o(sampled_clust_transfer_train_data)
+x6 <- setdiff(colnames(transfer_clust_hf2), y1)
+transfer_clust_hf2[, y1] <- as.factor(transfer_clust_hf2[, y1])
+sframe6 <- h2o.splitFrame(transfer_clust_hf2, seed = 42)
+train6 <- sframe6[[1]]
+valid6 <- sframe6[[2]]
+automl_model3 <- h2o.automl(x = x6,
+y = y1,
+training_frame = train6,
+max_runtime_secs = 60,
+seed = 42)
+
+transfer_test_clust_hf4 <- as.h2o(sampled_clust_transfer_test_data)
+x7 <- setdiff(colnames(transfer_test_clust_hf4), y1)
+transfer_test_clust_hf4[, y1] <- as.factor(transfer_test_clust_hf4[, y1])
+sframe7 <- h2o.splitFrame(transfer_test_clust_hf4, seed = 42)
+test7 <- sframe7[[1]]
+valid7 <- sframe7[[2]]
+
+lb3 <- automl_model3@leaderboard
+head(lb3)
+aml_leader3 <- automl_model3@leader
+summary(aml_leader3)
+h2o.performance(aml_leader3, test7)
+
+
+#Accuracy of Credit Card Dataset
+
+perf <- h2o.performance(aml_leader, test1)
+perf2 <- h2o.performance(aml_leader2, test5)
+
+#Supervised Accuracy
+h2o.accuracy(perf)
+#Supervised and Unsupervised Accuracy
+h2o.accuracy(perf2)
+
+#Accuracy of Transfer Dataset
+
+perf1 <- h2o.performance(aml_leader1, test3)
+perf3 <- h2o.performance(aml_leader3, test7)
+
+#Supervised Accuracy
+h2o.accuracy(perf1)
+#Supervised and Unsupervised Accuracy
+h2o.accuracy(perf3)
